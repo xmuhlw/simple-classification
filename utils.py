@@ -5,6 +5,59 @@ import shutil
 import torchvision.transforms as transforms
 from torch.autograd import Variable
 
+import sys
+import logging
+from logging.handlers import RotatingFileHandler
+import matplotlib.pyplot as plt
+
+
+def plot_losses(train_losses, valid_losses, path, valid_every=10):
+    plt.figure()
+    plt.plot(range(len(train_losses)), train_losses, label='Train Loss', color='blue')
+    valid_x = list(range(0, valid_every * (len(valid_losses)), valid_every))
+    valid_x = valid_x[:len(valid_losses)]  # 保证长度一致
+    plt.plot(valid_x, valid_losses, label='Valid Loss', color='orange', marker='o')
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.grid(True)
+    plt.title("Training and Validation Loss")
+    plt.savefig(os.path.join(path, "losses.png"))
+    plt.clf()
+
+class CustomLogger:
+
+    def __init__(self,
+                 name,
+                 file_path=None,
+                 log_size=10 * 1024 * 1024,
+                 backup_count=5):
+        self.log_size = log_size
+        self.backup_count = backup_count
+        self._init_logger(name, file_path)
+
+    def log_info(self, message):
+        self.logger.info(message)
+
+    def _init_logger(self, name, file_path):
+        logging.addLevelName(logging.INFO, "[INF]")
+
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.INFO)
+        self.formatter = logging.Formatter(
+            "%(levelname)s - %(asctime)s - %(message)s")
+
+        if file_path:
+            file_handler = RotatingFileHandler(file_path,
+                                               maxBytes=self.log_size,
+                                               backupCount=self.backup_count)
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(self.formatter)
+            self.logger.addHandler(file_handler)
+        else:
+            stream_handler = logging.StreamHandler(sys.stdout)
+            stream_handler.setFormatter(self.formatter)
+            self.logger.addHandler(stream_handler)
 
 class AvgrageMeter(object):
 
