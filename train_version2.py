@@ -86,6 +86,7 @@ def main(args):
     logs_path = './training_logs/{}-{}-{}-{}-{}/'.format(args.dataset_name, args.model_name, args.dims, args.patch_size, current_date)
 
     os.makedirs(logs_path, exist_ok=True)
+
     logger = CustomLogger("simple-convnext",
                             file_path=f"{logs_path}/training_log.txt")
     model_summary = str(summary(model, (1, 3, args.resolution, args.resolution),  verbose=0))
@@ -94,6 +95,65 @@ def main(args):
     global_step = 0
     losses = []
     valid_losses = []
+
+    def validate_and_log(epoch, model, test_dataloader, loss_fnc, device, logger,
+                        logs_path, train_losses, valid_losses, valid_every, is_final=False):
+
+        model.eval()
+        valid_loss = 0
+        valid_labels = []
+        valid_preds = []
+
+        with torch.no_grad():
+            for step, (images, labels) in enumerate(tqdm(test_dataloader, total=len(test_dataloader))):
+                images = images.to(device)
+                labels = labels.to(device)
+
+                preds = model(images)
+                loss = loss_fnc(preds, labels)
+                valid_loss += loss.item()
+
+                preds = preds.argmax(dim=-1)
+                valid_labels.extend(labels.detach().cpu().tolist())
+                valid_preds.extend(preds.detach().cpu().tolist())
+
+        avg_valid_loss = valid_loss / len(test_dataloader)
+        valid_losses.append(avg_valid_loss)
+
+        # logging
+        print(f"Valid loss: {avg_valid_loss}")
+        print(classification_report(valid_labels, valid_preds))
+        
+        logger.log_info(f"Epoch {epoch}")
+        logger.log_info(f"Valid loss: {avg_valid_loss}")
+        logger.log_info(classification_report(valid_labels, valid_preds))
+
+        # save checkpoint
+        if not is_final:
+            torch.save({
+                'model_state': model.state_dict(),
+                'optimizer_state': optimizer.state_dict(),
+            }, os.path.join(logs_path, 'checkpoint.pt'))
+
+            epoch_path = f"{logs_path}/{epoch}"
+            os.makedirs(epoch_path, exist_ok=True)
+            plot_losses(train_losses=train_losses,
+                        valid_losses=valid_losses,
+                        path=epoch_path,
+                        valid_every=valid_every)
+        else:
+            torch.save({
+                'model_state': model.state_dict(),
+                'optimizer_state': optimizer.state_dict(),
+            }, os.path.join(logs_path, "final_model.pt"))
+
+            epoch_path =f"{logs_path}/final"
+            os.makedirs(epoch_path, exist_ok=True)
+            plot_losses(train_losses=losses,
+                        valid_losses=valid_losses,
+                        path=epoch_path,
+                        valid_every=args.save_model_epochs)
+
     for epoch in range(args.num_epochs):
         model.train()
         progress_bar = tqdm(total=len(train_dataloader))
@@ -131,51 +191,16 @@ def main(args):
         progress_bar.close()
 
         losses.append(losses_log / (step + 1))
+
         if epoch % args.save_model_epochs == 0:
-            model.eval()
-            valid_loss = 0
-            with torch.no_grad():
-                valid_labels = []
-                valid_preds = []
-                for step, (images, labels) in enumerate(
-                        tqdm(test_dataloader, total=len(test_dataloader))):
-                    images = images.to(device)
-                    labels = labels.to(device)
+            validate_and_log(epoch, model, test_dataloader, loss_fnc, device,
+                            logger, logs_path, losses,
+                            valid_losses, args.save_model_epochs)
 
-                    preds = model(images)
-
-                    loss = loss_fnc(preds, labels)
-                    valid_loss += loss.item()
-
-                    preds = preds.argmax(dim=-1)
-                    valid_labels.extend(labels.detach().cpu().tolist())
-                    valid_preds.extend(preds.detach().cpu().tolist())
-
-                # print for debug
-                print(f"Valid loss: {valid_loss / len(test_dataloader)}")
-                print(classification_report(valid_labels, valid_preds))
-                
-                logger.log_info(f"Epoch {epoch}")
-                logger.log_info(logs)
-                logger.log_info(
-                    f"Valid loss: {valid_loss / len(test_dataloader)}")
-                logger.log_info(classification_report(valid_labels,
-                                                      valid_preds))
-
-                torch.save(
-                    {
-                        'model_state': model.state_dict(),
-                        'optimizer_state': optimizer.state_dict(),
-                    }, args.output_dir)
-
-            epoch_path = f"{logs_path}/{epoch}"
-            os.makedirs(epoch_path)
-
-            valid_losses.append(valid_loss / len(test_dataloader))
-            plot_losses(train_losses=losses,
-                        valid_losses=valid_losses,
-                        path=epoch_path)
-
+    if (args.num_epochs  - 1) % args.save_model_epochs != 0:
+        validate_and_log(args.epochs - 1, model, test_dataloader, loss_fnc, device,
+                        logger, logs_path, losses,
+                        valid_losses, args.save_model_epochs, is_final=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -192,9 +217,6 @@ if __name__ == "__main__":
                         type=str,
                         default='./dataset',
                         help="A folder containing the training data.")
-    parser.add_argument("--output_dir",
-                        type=str,
-                        default="trained_models/cifar10.pth")
     parser.add_argument("--resolution", type=int, default=32)
     parser.add_argument("--num_classes", type=int, default=10)
     parser.add_argument("--train_batch_size", type=int, default=256)
@@ -217,5 +239,4 @@ if __name__ == "__main__":
         raise ValueError(
             "You must specify either a dataset name from the hub or a train data directory."
         )
-
     main(args)

@@ -141,9 +141,13 @@ class ConvNeXtV2(nn.Module):
         x = self.head(x)
         return x
 
+def convnextv2_simple(**kwargs):
+    model = ConvNeXtV2(depths=[2, 2, 2, 2], **kwargs)
+    return model
+
 
 def convnextv2_atto(**kwargs):
-    model = ConvNeXtV2(depths=[2, 2, 2, 2], **kwargs)
+    model = ConvNeXtV2(depths=[2, 2, 6, 2], **kwargs)
     return model
 
 
