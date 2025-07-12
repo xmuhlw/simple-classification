@@ -1,6 +1,7 @@
 import argparse
 import os
 from datetime import datetime
+from collections import namedtuple
 
 import torch
 from torch.nn.utils import clip_grad_norm_
@@ -36,8 +37,18 @@ def main(args):
     rand_erasing = RandomErasing(probability=0.25, max_area=1/4, mode="pixel")
 
     # CIFAR10
-    if args.model_name == 'convnextv2_atto':  
+    if args.model_name == "convnextv2_atto":  
         model = convnextv2_atto(dims=args.dims, num_classes=args.num_classes, patch_size=args.patch_size)
+    elif args.model_name == "pcdarts":
+        initial_channel = 36
+        model_layer = 20
+        is_auxiliary = False
+        Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
+        genotype = Genotype(normal=[('sep_conv_3x3', 1), ('skip_connect', 0), ('sep_conv_3x3', 0), ('dil_conv_3x3', 1), ('sep_conv_5x5', 0), ('sep_conv_3x3', 1), ('avg_pool_3x3', 0), ('dil_conv_3x3', 1)], normal_concat=range(2, 6), reduce=[('sep_conv_5x5', 1), ('max_pool_3x3', 0), ('sep_conv_5x5', 1), ('sep_conv_5x5', 2), ('sep_conv_3x3', 0), ('sep_conv_3x3', 3), ('sep_conv_3x3', 1), ('sep_conv_3x3', 2)], reduce_concat=range(2, 6))
+        model = pcdarts(C=initial_channel, num_classes=args.num_classes, layers=model_layer, auxiliary=is_auxiliary, genotype=genotype)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -63,8 +74,13 @@ def main(args):
             "You must specify a dataset name."
         )
 
-    train_data = dset.CIFAR10(root=args.train_data_dir, train=True, download=True, transform=transforms_train)
-    test_data = dset.CIFAR10(root=args.train_data_dir, train=False, download=True, transform=transforms_test)
+    if args.dataset_name == 'cifar10':
+        train_data = dset.CIFAR10(root=args.train_data_dir, train=True, download=True, transform=transforms_train)
+        test_data = dset.CIFAR10(root=args.train_data_dir, train=False, download=True, transform=transforms_test)
+
+    elif args.dataset_name == 'cifar100':
+        train_data = dset.CIFAR100(root=args.train_data_dir, train=True, download=True, transform=transforms_train)
+        test_data = dset.CIFAR100(root=args.train_data_dir, train=False, download=True, transform=transforms_test)
 
     train_dataloader = torch.utils.data.DataLoader(
         train_data,
@@ -78,8 +94,7 @@ def main(args):
                                              steps_per_epoch=len(train_dataloader),
                                              epochs=args.num_epochs)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
+
     loss_fnc = nn.CrossEntropyLoss()
 
     current_date = datetime.today().strftime('%Y%m%d_%H%M%S')
@@ -156,6 +171,8 @@ def main(args):
 
     for epoch in range(args.num_epochs):
         model.train()
+        if args.model_name == 'pcdarts':
+            model.drop_path_prob = 0.3 * epoch / args.num_epochs
         progress_bar = tqdm(total=len(train_dataloader))
         progress_bar.set_description(f"Epoch {epoch}")
         losses_log = 0
@@ -198,7 +215,7 @@ def main(args):
                             valid_losses, args.save_model_epochs)
 
     if (args.num_epochs  - 1) % args.save_model_epochs != 0:
-        validate_and_log(args.epochs - 1, model, test_dataloader, loss_fnc, device,
+        validate_and_log(args.num_epochs - 1, model, test_dataloader, loss_fnc, device,
                         logger, logs_path, losses,
                         valid_losses, args.save_model_epochs, is_final=True)
 
@@ -206,19 +223,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Simple example of a training script.")
     ###
-    parser.add_argument('--model_name', type=str, default='convnextv2_atto', help='which model to use')
+    parser.add_argument('--model_name', type=str, default='pcdarts', help='which model to use')
     parser.add_argument('--dims', type=tuple, default=[64, 128, 256, 512], help='dims')
     parser.add_argument('--patch_size', type=int, default=1, help='patch size')
+    parser.add_argument("--dataset_name", type=str, default='cifar10')
+    parser.add_argument("--num_classes", type=int, default=10)
     
     ###
-    parser.add_argument("--dataset_name", type=str, default='cifar10')
     parser.add_argument("--dataset_config_name", type=str, default=None)
     parser.add_argument("--train_data_dir",
                         type=str,
                         default='./dataset',
                         help="A folder containing the training data.")
     parser.add_argument("--resolution", type=int, default=32)
-    parser.add_argument("--num_classes", type=int, default=10)
     parser.add_argument("--train_batch_size", type=int, default=256)
     parser.add_argument("--eval_batch_size", type=int, default=256)
     parser.add_argument("--num_epochs", type=int, default=100)

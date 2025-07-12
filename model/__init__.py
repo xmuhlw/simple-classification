@@ -8,3 +8,5 @@ from .convnextv2 import (
     convnextv2_huge,
     convnextv2_custom,
 )
+
+from .pcdarts import NetworkCIFAR as pcdarts
