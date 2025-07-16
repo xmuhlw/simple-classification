@@ -17,6 +17,22 @@ OPS = {
     nn.Conv2d(C, C, (7,1), stride=(stride, 1), padding=(3, 0), bias=False),
     nn.BatchNorm2d(C, affine=affine)
     ),
+    ## customized search space
+    'dw_conv_3x3': lambda C_in, C_out, stride, affine: nn.Sequential(
+        nn.Conv2d(C_in, C_out, 3, stride, padding=3//2, bias= True, groups=C_in),
+    ),
+    'dw_conv_5x5': lambda C_in, C_out, stride, affine: nn.Sequential(
+        nn.Conv2d(C_in, C_out, 5, stride, padding=5//2, bias= True, groups=C_in),
+    ),
+    'dw_conv_7x7': lambda C_in, C_out, stride, affine: nn.Sequential(
+        nn.Conv2d(C_in, C_out, 7, stride, padding=7//2, bias= True, groups=C_in),
+    ),
+    'dw_conv_9x9': lambda C_in, C_out, stride, affine: nn.Sequential(
+        nn.Conv2d(C_in, C_out, 9, stride, padding=9//2, bias= True, groups=C_in),
+    ),
+    'dw_conv_11x11': lambda C_in, C_out, stride, affine: nn.Sequential(
+        nn.Conv2d(C_in, C_out, 11, stride, padding=11//2, bias= True, groups=C_in),
+    ),
 }
 
 class ReLUConvBN(nn.Module):

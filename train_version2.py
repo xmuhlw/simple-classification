@@ -21,6 +21,21 @@ from model import *
 from utils import plot_losses, CustomLogger
 
 
+convnextv2_models = {
+    "convnextv2_atto": convnextv2_atto,
+    "convnextv2_simple": convnextv2_simple,
+    "convnextv2_femto": convnextv2_femto,
+}
+
+dartsnext_models = {
+    "dartsnext_atto": dartsnext_atto,
+    "dartsnext_simple": dartsnext_simple,
+}
+
+def create_genotype(block_config):
+    block_fields = ', '.join([f'block_{idx}' for idx in range(len(block_config))])
+    return namedtuple('Genotype', block_fields)
+
 def main(args):
     mixup_args = {
         'mixup_alpha': 0.8,
@@ -37,14 +52,22 @@ def main(args):
     rand_erasing = RandomErasing(probability=0.25, max_area=1/4, mode="pixel")
 
     # CIFAR10
-    if args.model_name == "convnextv2_atto":  
-        model = convnextv2_atto(dims=args.dims, num_classes=args.num_classes, patch_size=args.patch_size)
+    if args.model_name in convnextv2_models:
+        model = convnextv2_models[args.model_name](dims=args.dims, num_classes=args.num_classes, patch_size=args.patch_size)
+
+    if args.model_name in dartsnext_models:
+        block_config = [2, 2, 6, 2]
+        Genotype = create_genotype(block_config)
+        test_genotype = Genotype(block_0=[('dw_conv_7x7', 0), ('dw_conv_7x7', 1)], block_1=[('dw_conv_3x3', 0), ('dw_conv_7x7', 1)], block_2=[('dw_conv_3x3', 0), ('dw_conv_3x3', 1), ('dw_conv_11x11', 2), ('dw_conv_3x3', 3), ('dw_conv_3x3', 4), ('dw_conv_5x5', 5)], block_3=[('dw_conv_9x9', 0), ('dw_conv_3x3', 1)])
+        
+        model = dartsnext_models[args.model_name](dims=args.dims, num_classes=args.num_classes, patch_size=args.patch_size, genotype=test_genotype)
+
     elif args.model_name == "pcdarts":
         initial_channel = 36
         model_layer = 20
         is_auxiliary = False
         Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
-        genotype = Genotype(normal=[('sep_conv_3x3', 1), ('skip_connect', 0), ('sep_conv_3x3', 0), ('dil_conv_3x3', 1), ('sep_conv_5x5', 0), ('sep_conv_3x3', 1), ('avg_pool_3x3', 0), ('dil_conv_3x3', 1)], normal_concat=range(2, 6), reduce=[('sep_conv_5x5', 1), ('max_pool_3x3', 0), ('sep_conv_5x5', 1), ('sep_conv_5x5', 2), ('sep_conv_3x3', 0), ('sep_conv_3x3', 3), ('sep_conv_3x3', 1), ('sep_conv_3x3', 2)], reduce_concat=range(2, 6))
+        genotype = Genotype(block_0=[('dw_conv_7x7', 0), ('dw_conv_7x7', 1)], block_1=[('dw_conv_3x3', 0), ('dw_conv_7x7', 1)], block_2=[('dw_conv_3x3', 0), ('dw_conv_3x3', 1), ('dw_conv_11x11', 2), ('dw_conv_3x3', 3), ('dw_conv_3x3', 4), ('dw_conv_5x5', 5)], block_3=[('dw_conv_9x9', 0), ('dw_conv_3x3', 1)])
         model = pcdarts(C=initial_channel, num_classes=args.num_classes, layers=model_layer, auxiliary=is_auxiliary, genotype=genotype)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -223,7 +246,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Simple example of a training script.")
     ###
-    parser.add_argument('--model_name', type=str, default='pcdarts', help='which model to use')
+    parser.add_argument('--model_name', type=str, default='dartsnext_atto', help='which model to use')
     parser.add_argument('--dims', type=tuple, default=[64, 128, 256, 512], help='dims')
     parser.add_argument('--patch_size', type=int, default=1, help='patch size')
     parser.add_argument("--dataset_name", type=str, default='cifar10')
